@@ -1,0 +1,1 @@
+This is a Python package to access CMB data from the Legacy Archive for Microwave Background Data (LAMBDA).

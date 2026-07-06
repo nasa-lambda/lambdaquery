@@ -1,0 +1,14 @@
+[project]
+name = "lambdaquery"
+version = "0.1.0"
+description = "Access LAMBDA data."
+readme = "README.md"
+authors = [
+    { name = "Nathan Miller", email = "Nathan.J.Miller@nasa.gov" }
+]
+requires-python = ">=3.14"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
