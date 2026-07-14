@@ -19,9 +19,9 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "mypy>=2.1.0",
     "pytest>=9.1.1",
     "ruff>=0.15.20",
+    "ty>=0.0.59",
 ]
 
 [tool.pytest.ini_options]
@@ -32,3 +32,9 @@ src = ["src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"] # pycodestyle, pyflakes, isort
+
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.terminal]
+error-on-warning = true

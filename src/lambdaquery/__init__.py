@@ -1,6 +1,22 @@
-from lambdaquery._core import func1
+from pathlib import Path
 
-# def hello() -> str:
-# return "Hello from lambdaquery!"
+from ._fetch import _download
+from ._registry import _registry
 
-__all__ = ["func1"]
+
+def list_experiments() -> list[str]:
+    return _registry.list_experiments()
+
+
+def list_datasets(experiment: str) -> list[str]:
+    return _registry.list_datasets(experiment)
+
+
+def fetch_data(
+    experiment: str, dataset: str, location: str | Path
+) -> Path | list[Path]:
+    entry = _registry.get(experiment, dataset)
+    return _download(entry, Path(location))
+
+
+__all__ = ["list_experiments", "list_datasets", "fetch_data"]

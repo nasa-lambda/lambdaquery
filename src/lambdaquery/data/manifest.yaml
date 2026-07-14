@@ -1,1 +1,30 @@
-FIRAS
+# Sample manifest in the new reference-model shape.
+#
+# Under each experiment, an entry is either:
+#   name: /data/.../file.fits        -> a file leaf (server-relative LAMBDA path)
+#   name: [other_entry_name, ...]    -> a group referencing sibling entries by name
+#
+# This is a small placeholder; the real ~13k-file dump from the LAMBDA database
+# lands here later. Groupings are illustrative.
+
+WMAP:
+  # File leaves (mirrored to the public S3 bucket for WMAP under wmap/...).
+  iqumapKa9yr: /data/map/dr5/skymaps/9yr/forered/wmap_band_forered_iqumap_r9_9yr_Ka_v5.fits
+  iqumapQ9yr: /data/map/dr5/skymaps/9yr/forered/wmap_band_forered_iqumap_r9_9yr_Q_v5.fits
+
+  # Groups reference leaves by name.
+  forered9yr:
+    - iqumapKa9yr
+    - iqumapQ9yr
+
+  # A larger group that also references iqumapKa9yr -- the shared leaf is stored
+  # and downloaded only once.
+  all9yr:
+    - forered9yr
+    - iqumapKa9yr
+
+PLANCK:
+  # Not mirrored to S3 -- fetched over HTTPS from LAMBDA.
+  cmbmap: /data/planck/release_3/all-sky-maps/COM_CMB_IQU-smica_2048_R3.00_full.fits
+  maps:
+    - cmbmap
