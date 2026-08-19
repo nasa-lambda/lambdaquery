@@ -19,6 +19,9 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "ipykernel>=6.32",
+    "ipython>=9.16.1",
+    "jupyterlab>=4.5",
     "pytest>=9.1.1",
     "ruff>=0.15.20",
     "ty>=0.0.59",
@@ -29,9 +32,16 @@ testpaths = ["tests"]
 
 [tool.ruff]
 src = ["src"]
+# The demo notebook bootstraps sys.path before importing, so its imports can't sit
+# at the top of the cell, and `console` isn't resolvable statically. Linting it
+# would only add noqa noise to a file meant to be read by newcomers.
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"] # pycodestyle, pyflakes, isort
+
+[tool.ty.src]
+exclude = ["notebooks"] # see the ruff note above
 
 [tool.ty.environment]
 python-version = "3.14"

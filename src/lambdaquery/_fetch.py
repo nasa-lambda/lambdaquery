@@ -7,18 +7,22 @@ path, so a file referenced by several datasets is downloaded and stored once.
 """
 
 import os
+import re
 from pathlib import Path
 
 import boto3
 import requests
 from botocore import UNSIGNED
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from . import _cache
 from ._registry import DatasetEntry
 
-# Experiments whose files are also mirrored in the public S3 bucket.
-s3_exps = {"FIRAS", "DMR", "WMAP"}
+# Experiments whose files are also mirrored in the public S3 bucket. Names must
+# match the manifest's experiment keys exactly -- the COBE instruments are keyed
+# "COBE/<instrument>". The bucket mirrors two top-level trees, cobe/ and wmap/.
+s3_exps = {"COBE/DIRBE", "COBE/DMR", "COBE/FIRAS", "WMAP"}
 
 LAMBDA_BASE = "https://lambda.gsfc.nasa.gov"
 S3_BUCKET = "nasa-lambda"
@@ -28,6 +32,10 @@ S3_BUCKET = "nasa-lambda"
 S3_KEY_REWRITE = {"WMAP": ("map/", "wmap/")}
 
 _CHUNK_SIZE = 1 << 20  # 1 MiB
+
+# S3 error codes meaning "this object is not on the mirror" (as opposed to a
+# transport/permission failure, which must not be swallowed).
+_S3_MISSING_CODES = {"404", "NoSuchKey"}
 
 
 def _download(entry: DatasetEntry, location: Path) -> Path | list[Path]:
@@ -65,11 +73,21 @@ def _download_file(entry: DatasetEntry, dest: Path) -> Path:
         return dest
 
     dest.parent.mkdir(parents=True, exist_ok=True)
+    url = _lambda_url(entry.path)
     if entry.experiment in s3_exps:
         bucket, key = _lambda_path_to_s3(entry.experiment, entry.path)
-        _download_from_s3(bucket, key, dest)
+        try:
+            _download_from_s3(bucket, key, dest)
+        except ClientError as err:
+            # The S3 mirror is partial -- e.g. WMAP's 1-year release and much of
+            # its TOD/sim data are HTTPS-only. Fall back rather than fail; other
+            # S3 errors (throttling, transport) still propagate.
+            code = err.response.get("Error", {}).get("Code")
+            if code not in _S3_MISSING_CODES:
+                raise
+            _download_from_url(url, dest)
     else:
-        _download_from_url(_lambda_url(entry.path), dest)
+        _download_from_url(url, dest)
 
     _cache.verify(dest, entry)
     return dest
@@ -104,8 +122,13 @@ def _lambda_url(path: str) -> str:
 
 
 def _lambda_path_to_s3(experiment: str, path: str) -> tuple[str, str]:
-    """Map a ``/data/...`` path to an ``(bucket, key)`` on the S3 mirror."""
-    key = path.removeprefix("/data/")
+    """Map a ``/data/...`` path to an ``(bucket, key)`` on the S3 mirror.
+
+    Repeated slashes are collapsed: the manifest contains paths like
+    ``/data/map/powspec//file.txt``, which the HTTPS server tolerates but which
+    S3 would treat as a distinct (nonexistent) key.
+    """
+    key = re.sub(r"/+", "/", path).removeprefix("/data/")
     rewrite = S3_KEY_REWRITE.get(experiment)
     if rewrite is not None:
         first, replacement = rewrite
