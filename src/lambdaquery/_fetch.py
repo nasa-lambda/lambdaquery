@@ -8,6 +8,7 @@ path, so a file referenced by several datasets is downloaded and stored once.
 
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import boto3
@@ -18,6 +19,8 @@ from botocore.exceptions import ClientError
 
 from . import _cache
 from ._registry import DatasetEntry
+
+ProgressCallback = Callable[[str, Path], None]
 
 # Experiments whose files are also mirrored in the public S3 bucket. Names must
 # match the manifest's experiment keys exactly -- the COBE instruments are keyed
@@ -38,7 +41,11 @@ _CHUNK_SIZE = 1 << 20  # 1 MiB
 _S3_MISSING_CODES = {"404", "NoSuchKey"}
 
 
-def _download(entry: DatasetEntry, location: Path) -> Path | list[Path]:
+def _download(
+    entry: DatasetEntry,
+    location: Path,
+    on_file: ProgressCallback | None = None,
+) -> Path | list[Path]:
     """Download ``entry`` under ``location``.
 
     Returns the file path for a leaf, or a flat list of every downloaded file
@@ -46,11 +53,11 @@ def _download(entry: DatasetEntry, location: Path) -> Path | list[Path]:
     """
     if entry.path is not None:
         dest = _local_path(entry.path, location)
-        return _download_file(entry, dest)
+        return _download_file(entry, dest, on_file=on_file)
 
     paths: list[Path] = []
     for child in entry.children:
-        result = _download(child, location)
+        result = _download(child, location, on_file=on_file)
         if isinstance(result, list):
             paths.extend(result)
         else:
@@ -67,10 +74,19 @@ def _local_path(path: str, location: Path) -> Path:
     return location / path.lstrip("/")
 
 
-def _download_file(entry: DatasetEntry, dest: Path) -> Path:
+def _download_file(
+    entry: DatasetEntry,
+    dest: Path,
+    on_file: ProgressCallback | None = None,
+) -> Path:
     assert entry.path is not None  # leaf invariant; enforced by callers
     if _cache.is_cached(dest, entry):
+        if on_file is not None:
+            on_file("cached", dest)
         return dest
+
+    if on_file is not None:
+        on_file("start", dest)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     url = _lambda_url(entry.path)
@@ -90,6 +106,9 @@ def _download_file(entry: DatasetEntry, dest: Path) -> Path:
         _download_from_url(url, dest)
 
     _cache.verify(dest, entry)
+
+    if on_file is not None:
+        on_file("done", dest)
     return dest
 
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ._fetch import _download
+from ._fetch import ProgressCallback, _download
 from ._registry import _registry
 
 
@@ -13,10 +13,14 @@ def list_datasets(experiment: str) -> list[str]:
 
 
 def fetch_data(
-    experiment: str, dataset: str, location: str | Path
+    experiment: str,
+    dataset: str,
+    location: str | Path,
+    *,
+    on_file: ProgressCallback | None = None,
 ) -> Path | list[Path]:
     entry = _registry.get(experiment, dataset)
-    return _download(entry, Path(location))
+    return _download(entry, Path(location), on_file=on_file)
 
 
 __all__ = ["list_experiments", "list_datasets", "fetch_data"]
