@@ -13076,6 +13076,19 @@ BICEP1:
   B1_3yr_lcdm_20131003.tar.gz: /data/suborbital/BICEP1/3years/B1_3yr_lcdm_20131003.tar.gz
   B1_3yr_likelihood_20131003.tar.gz: /data/suborbital/BICEP1/3years/B1_3yr_likelihood_20131003.tar.gz
   b1_hl_likelihood.tgz: /data/suborbital/BICEP1/3years/b1_hl_likelihood.tgz
+  2Yr:
+  - BICEP_20090618.tgz
+  - BICEP_20090618.txt
+  - BICEP_beam_err.txt
+  3Yr:
+  - B1_3yr_BBlimits_20131003.txt
+  - B1_3yr_bandpowers_20131003.txt
+  - B1_3yr_bpwf_20131003.tar.gz
+  - B1_3yr_lcdm_20131003.tar.gz
+  - B1_3yr_likelihood_20131003.tar.gz
+  - B1_3yr_rlikelihood_20131003.txt
+  - B1_3yr_sysuncer_20131003.txt
+  - b1_hl_likelihood.tgz
 QUIET:
   QUIET_second_season_bandpowers-ML.txt: /data/suborbital/QUIET/QUIET_second_season_bandpowers-ML.txt
   QUIET_second_season_bandpowers-PCL.txt: /data/suborbital/QUIET/QUIET_second_season_bandpowers-PCL.txt
@@ -13135,6 +13148,23 @@ POLARBEAR:
   bandpowers.txt: /data/suborbital/POLARBEAR//bandpowers.txt
   Covs_BPWF.zip: /data/suborbital/POLARBEAR//Covs_BPWF.zip
   Polarbear_Likelihood.zip: /data/suborbital/POLARBEAR//Polarbear_Likelihood.zip
+  FirstDataRelease:
+  - POLARBEAR_First_Data_Release_Band_Power_Window_Function_2014-04-03.txt
+  - POLARBEAR_First_Data_Release_BandpowerCov_Lensed_2014-04-03.txt
+  - POLARBEAR_First_Data_Release_BandpowerCov_Unlensed_2014-04-03.txt
+  - POLARBEAR_First_Data_Release_Bandpower_Lensed_2014-04-03.txt
+  - POLARBEAR_First_Data_Release_Bandpower_Unlensed_2014-04-03.txt
+  - POLARBEAR_First_Data_Release_Bandpowers_2014-04-03.txt
+  - POLARBEAR_First_Data_Release_CB_Amplitude_Histogram.txt
+  SecondDataRelease:
+  - POLARBEAR_Second_Data_Release_Bandpowers.txt
+  - POLARBEAR_Second_Data_Release_Covariance.txt
+  LensingCIB:
+  - covEBRA12.txt
+  - covEBRA23.txt
+  - covEERA12.txt
+  - covEERA23.txt
+  - dataPointsEBEE2312.txt
 BICEP2:
   B2_3yr_rlikelihood_20140314.txt: /data/suborbital/BICEP2/B2_3yr_rlikelihood_20140314.txt
   B2_3yr_bpwf_bin9_20140314.txt: /data/suborbital/BICEP2/B2_3yr_bpwf_bin9_20140314.txt
@@ -13203,6 +13233,80 @@ BICEP2:
   BK18_Nl_fsky_20210607.txt: /data/suborbital/BICEPK_2021/BK18_Nl_fsky_20210607.txt
   rns_code.tgz: /data/suborbital/BICEPK_2021/rns_code.tgz
   chains_no_data_files.tar.gz: /data/suborbital/BICEPK_2021/chains_no_data_files.tar.gz
+  BK18:
+  - BK18_150_bandpass_20210607.txt
+  - BK18_220_bandpass_20210607.txt
+  - BK18_B95_bandpass_20210607.txt
+  - BK18_K95_bandpass_20210607.txt
+  - BK18_Nl_fsky_20210607.txt
+  - BK18_bandpowers_20210607.txt
+  - BK18_components_20210607.txt
+  - BK18_cosmomc.tgz
+  - BK18_r_likelihood_20210607.txt
+  - chains.tgz
+  - chains_no_data_files.tar.gz
+  - rns_code.tgz
+  BK15:
+  - BK15_150_bandpass_20180920.txt
+  - BK15_220_bandpass_20180920.txt
+  - BK15_95_bandpass_20180920.txt
+  - BK15_Nl_fsky_20181102.txt
+  - BK15_bandpowers_20180920.txt
+  - BK15_components_20180921.txt
+  - BK15_cosmomc.tgz
+  - BK15_r_likelihood_20180920.txt
+  BK14:
+  - BK14_bandpowers_20151030.txt
+  - BK14_components_20151030.txt
+  - BK14_cosmomc.tgz
+  - BK14_r_likelihood_20151029.txt
+  BKJan2015:
+  - BK_bandpowers_20150130.txt
+  - BK_bandpowers_sample_20150129.txt
+  - BK_bpwf_bin1_20150129.txt
+  - BK_bpwf_bin2_20150129.txt
+  - BK_bpwf_bin3_20150129.txt
+  - BK_bpwf_bin4_20150129.txt
+  - BK_bpwf_bin5_20150129.txt
+  - BK_bpwf_bin6_20150129.txt
+  - BK_bpwf_bin7_20150129.txt
+  - BK_bpwf_bin8_20150129.txt
+  - BK_bpwf_bin9_20150129.txt
+  - BK_bandpower_window_functions.tgz
+  - BK_likelihood_bandpowers_20150129.txt
+  - BK_bpcm_no-sysuncer_20150129.txt
+  - BK_camb_planck_lensed_uK_20150129.txt
+  - BK_camb_planck_params_20150129.ini
+  - BK_cl_expected_lensed_20150129.txt
+  BKP:
+  - BKP_bandpowers_150x353_20150130.txt
+  - BKP_bandpowers_353x353_20150130.txt
+  - BK_bandpowers_20150130.txt
+  - BKP_bandpowers_EEBB_20150123.txt
+  - BKP_likelihood_cosmomc_20150131.tgz
+  - BKP_r_likelihood_20150123.txt
+  B2:
+  - B2_3yr_bandpower_window_functions.tgz
+  - B2_3yr_bandpowers_20140314.txt
+  - B2_3yr_bpcm_no-sysuncer_20140314.txt
+  - B2_3yr_bpwf_bin1_20140314.txt
+  - B2_3yr_bpwf_bin2_20140314.txt
+  - B2_3yr_bpwf_bin3_20140314.txt
+  - B2_3yr_bpwf_bin4_20140314.txt
+  - B2_3yr_bpwf_bin5_20140314.txt
+  - B2_3yr_bpwf_bin6_20140314.txt
+  - B2_3yr_bpwf_bin7_20140314.txt
+  - B2_3yr_bpwf_bin8_20140314.txt
+  - B2_3yr_bpwf_bin9_20140314.txt
+  - B2_3yr_camb_planck_lensed_uK_20140314.txt
+  - B2_3yr_camb_planck_withB_params_20140314.ini
+  - B2_3yr_camb_planck_withB_uK_20140314.txt
+  - B2_3yr_cl_expected_lensed_20140314.txt
+  - B2_3yr_cl_expected_withB_20140314.txt
+  - B2_3yr_likelihood_bandpowers_20140314.txt
+  - B2_3yr_rlikelihood_20140314.txt
+  - B2_3yr_sysuncer_20140314.txt
+  - B2_hl_likelihood_20140314.tgz
 IRAS:
   IRAS_PSC.DAT: /data/iras/pt_srcs_and_small_extended_srcs/point_source_catalog/data/IRAS_PSC.DAT
   IRIS_nohole_1_1024.fits: /data/iras/third_party/iris/IRIS_nohole_1_1024.fits
