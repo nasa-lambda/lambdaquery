@@ -1,8 +1,10 @@
 """Tests for the download/dispatch layer (offline; network is mocked)."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import requests
 from botocore.exceptions import ClientError
 
 from lambdaquery import _fetch
@@ -196,3 +198,175 @@ def test_download_from_url_atomic(tmp_path, monkeypatch):
     assert src.endswith(".part")
     assert dst == str(dest)
     assert not (tmp_path / "out.fits.part").exists()
+
+
+# --- size walk -----------------------------------------------------------
+
+
+def _record_sizes(monkeypatch, sizes):
+    """Replace the size probes with fakes driven by a {key-or-url: size} map.
+
+    A missing entry (or an explicit None) means "size unavailable" -- the same
+    signal the real probes return for a 404 or a transport failure.
+    """
+    calls = {"s3": [], "url": []}
+
+    def fake_s3(bucket, key):
+        calls["s3"].append(key)
+        return sizes.get(key)
+
+    def fake_url(url):
+        calls["url"].append(url)
+        return sizes.get(url)
+
+    monkeypatch.setattr(_fetch, "_size_from_s3", fake_s3)
+    monkeypatch.setattr(_fetch, "_size_from_url", fake_url)
+    return calls
+
+
+def _group(*names):
+    return DatasetEntry(
+        experiment="WMAP",
+        name="grp",
+        children=tuple(
+            DatasetEntry(experiment="WMAP", name=n, path=f"/data/map/dr5/{n}")
+            for n in names
+        ),
+    )
+
+
+def test_total_size_sums_group_leaves(tmp_path, monkeypatch):
+    _record_sizes(monkeypatch, {"wmap/dr5/a.fits": 100, "wmap/dr5/b.fits": 23})
+    assert _fetch._total_size(_group("a.fits", "b.fits"), tmp_path) == 123
+
+
+def test_total_size_of_leaf(tmp_path, monkeypatch):
+    _record_sizes(monkeypatch, {"wmap/dr5/a.fits": 100})
+    entry = DatasetEntry(experiment="WMAP", name="a", path="/data/map/dr5/a.fits")
+    assert _fetch._total_size(entry, tmp_path) == 100
+
+
+def test_total_size_skips_cached_files(tmp_path, monkeypatch):
+    calls = _record_sizes(monkeypatch, {"wmap/dr5/a.fits": 100, "wmap/dr5/b.fits": 23})
+    cached = tmp_path / "data/map/dr5/a.fits"
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"already here")
+
+    # Only the uncached leaf contributes -- and only it is probed.
+    assert _fetch._total_size(_group("a.fits", "b.fits"), tmp_path) == 23
+    assert calls["s3"] == ["wmap/dr5/b.fits"]
+
+
+def test_total_size_dedups_shared_leaf(tmp_path, monkeypatch):
+    calls = _record_sizes(monkeypatch, {"wmap/dr5/a.fits": 100})
+    leaf = DatasetEntry(experiment="WMAP", name="a", path="/data/map/dr5/a.fits")
+    group = DatasetEntry(experiment="WMAP", name="grp", children=(leaf, leaf))
+
+    # Nothing is written during a size walk, so dedup can't ride on the cache
+    # the way _download's does.
+    assert _fetch._total_size(group, tmp_path) == 100
+    assert calls["s3"] == ["wmap/dr5/a.fits"]
+
+
+def test_total_size_unknown_leaf_is_skipped(tmp_path, monkeypatch):
+    # b.fits is on neither source; a dead link must not fail the whole query.
+    _record_sizes(monkeypatch, {"wmap/dr5/a.fits": 100})
+    assert _fetch._total_size(_group("a.fits", "b.fits"), tmp_path) == 100
+
+
+def test_total_size_reports_each_leaf_once(tmp_path, monkeypatch):
+    _record_sizes(monkeypatch, {"wmap/dr5/a.fits": 100, "wmap/dr5/c.fits": 5})
+    cached = tmp_path / "data/map/dr5/c.fits"
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"here")
+
+    events = []
+    _fetch._total_size(
+        _group("a.fits", "b.fits", "c.fits"),
+        tmp_path,
+        on_file=lambda e, p: events.append((e, p.name)),
+    )
+    assert events == [
+        ("counted", "a.fits"),
+        ("unknown", "b.fits"),
+        ("cached", "c.fits"),
+    ]
+
+
+def test_remote_size_falls_back_to_https_on_s3_miss(monkeypatch):
+    calls = _record_sizes(
+        monkeypatch,
+        {"https://lambda.gsfc.nasa.gov/data/map/skymaps/x.fits": 42},
+    )
+    # WMAP's 1-year release is not on the mirror, but HTTPS serves it.
+    entry = DatasetEntry(experiment="WMAP", name="f", path="/data/map/skymaps/x.fits")
+
+    assert _fetch._remote_size(entry) == 42
+    assert calls["s3"] == ["wmap/skymaps/x.fits"]
+    assert calls["url"] == ["https://lambda.gsfc.nasa.gov/data/map/skymaps/x.fits"]
+
+
+def test_remote_size_skips_s3_for_non_mirrored_experiment(monkeypatch):
+    calls = _record_sizes(
+        monkeypatch, {"https://lambda.gsfc.nasa.gov/data/planck/x.fits": 7}
+    )
+    entry = DatasetEntry(experiment="PLANCK", name="f", path="/data/planck/x.fits")
+
+    assert _fetch._remote_size(entry) == 7
+    assert calls["s3"] == []
+
+
+# --- size probes ---------------------------------------------------------
+
+
+def _fake_s3_client(monkeypatch, head_object):
+    """Point _s3_client at a stub whose head_object is the given function."""
+    monkeypatch.setattr(
+        _fetch, "_s3_client", lambda: SimpleNamespace(head_object=head_object)
+    )
+
+
+def test_size_from_s3_reads_content_length(monkeypatch):
+    _fake_s3_client(monkeypatch, lambda Bucket, Key: {"ContentLength": 1008000})
+    assert _fetch._size_from_s3("nasa-lambda", "wmap/x.fits") == 1008000
+
+
+@pytest.mark.parametrize("code", ["404", "NoSuchKey", "SlowDown"])
+def test_size_from_s3_returns_none_on_client_error(monkeypatch, code):
+    def raising(Bucket, Key):
+        raise _s3_error(code)
+
+    _fake_s3_client(monkeypatch, raising)
+    # Broader than the download path's _S3_MISSING_CODES check on purpose: here
+    # the fallback costs one more HEAD, not a re-transferred file.
+    assert _fetch._size_from_s3("nasa-lambda", "wmap/x.fits") is None
+
+
+class _FakeHead:
+    def __init__(self, status_code=200, headers=None):
+        self.status_code = status_code
+        self.headers = headers if headers is not None else {}
+
+
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        (_FakeHead(200, {"Content-Length": "1008000"}), 1008000),
+        (_FakeHead(404), None),
+        (_FakeHead(200, {}), None),  # no Content-Length header
+        (_FakeHead(200, {"Content-Length": "not-a-number"}), None),
+    ],
+)
+def test_size_from_url(monkeypatch, response, expected):
+    monkeypatch.setattr(
+        _fetch.requests, "head", lambda url, allow_redirects, timeout: response
+    )
+    assert _fetch._size_from_url("https://example/x.fits") == expected
+
+
+def test_size_from_url_returns_none_on_transport_error(monkeypatch):
+    def boom(url, allow_redirects, timeout):
+        raise requests.ConnectionError("no route to host")
+
+    monkeypatch.setattr(_fetch.requests, "head", boom)
+    assert _fetch._size_from_url("https://example/x.fits") is None

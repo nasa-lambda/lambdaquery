@@ -40,6 +40,28 @@ def _stub_fetch(monkeypatch, result, *, on_file_events=()):
     return calls
 
 
+def _stub_size(monkeypatch, total, *, on_file_events=()):
+    """Replace ``_cli.get_download_size`` with a fake: records args, replays events."""
+    calls = []
+
+    def fake(experiment, dataset, location, *, on_file=None):
+        calls.append(
+            {
+                "experiment": experiment,
+                "dataset": dataset,
+                "location": location,
+                "on_file": on_file,
+            }
+        )
+        for event, path in on_file_events:
+            if on_file is not None:
+                on_file(event, path)
+        return total
+
+    monkeypatch.setattr(_cli, "get_download_size", fake)
+    return calls
+
+
 def _raising_fetch(monkeypatch, exc):
     def fake(experiment, dataset, location, *, on_file=None):
         raise exc
@@ -209,6 +231,77 @@ def test_format_size(size, expected):
     assert _cli._format_size(size) == expected
 
 
+# --- size ----------------------------------------------------------------
+
+
+def test_size_prints_total_to_stdout(capsys, monkeypatch, tmp_path):
+    _stub_size(monkeypatch, 1008000)
+    assert _cli.main(["size", "WMAP", "x.fits", "-o", str(tmp_path), "-q"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "984.38 KB\n"
+    assert captured.err == ""
+
+
+def test_size_summary_goes_to_stderr(capsys, monkeypatch, tmp_path):
+    # Keeps `lambdaquery size ... > total.txt` free of chatter.
+    a, b, c = tmp_path / "a.fits", tmp_path / "b.fits", tmp_path / "c.fits"
+    _stub_size(
+        monkeypatch,
+        1024,
+        on_file_events=[("counted", a), ("cached", b), ("unknown", c)],
+    )
+
+    assert _cli.main(["size", "WMAP", "grp", "-o", str(tmp_path)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "1.00 KB\n"
+    summary = captured.err.strip().splitlines()[-1]
+    assert "3 file(s)" in summary
+    assert "1 to download" in summary
+    assert "1 cached" in summary
+    assert "1 of unknown size" in summary
+
+
+def test_size_names_unknown_files_on_stderr(capsys, monkeypatch, tmp_path):
+    # A short total must never be silent about what it left out.
+    missing = tmp_path / "gone.fits"
+    _stub_size(monkeypatch, 0, on_file_events=[("unknown", missing)])
+
+    assert _cli.main(["size", "WMAP", "gone.fits", "-o", str(tmp_path)]) == 0
+    assert str(missing) in capsys.readouterr().err
+
+
+def test_size_quiet_passes_no_callback(capsys, monkeypatch, tmp_path):
+    calls = _stub_size(monkeypatch, 512)
+    assert _cli.main(["size", "WMAP", "x.fits", "-o", str(tmp_path), "-q"]) == 0
+    captured = capsys.readouterr()
+    assert calls[0]["on_file"] is None
+    assert captured.err == ""
+    assert captured.out == "512.00 B\n"  # the total is still printed
+
+
+def test_size_forwards_arguments(monkeypatch, tmp_path):
+    calls = _stub_size(monkeypatch, 0)
+    assert _cli.main(["size", "COBE/FIRAS", "spec.fits", "-o", str(tmp_path)]) == 0
+    assert calls[0]["experiment"] == "COBE/FIRAS"
+    assert calls[0]["dataset"] == "spec.fits"
+    assert calls[0]["location"] == tmp_path
+    assert isinstance(calls[0]["location"], Path)  # argparse type=Path
+
+
+def test_size_output_defaults_to_cwd(monkeypatch):
+    calls = _stub_size(monkeypatch, 0)
+    assert _cli.main(["size", "WMAP", "x.fits", "-q"]) == 0
+    assert calls[0]["location"] == Path(".")
+
+
+def test_size_unknown_experiment_exits_1(capsys):
+    # No stub: the real registry raises KeyError with the available names.
+    assert _cli.main(["size", "NOPE", "x.fits"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Available experiments" in captured.err
+
+
 # --- error mapping -------------------------------------------------------
 
 
@@ -313,3 +406,19 @@ def test_group_progress_reports_every_child(tmp_path, monkeypatch):
         ("start", "b.fits"),
         ("done", "b.fits"),
     ]
+
+
+def test_size_callback_reaches_fetch_layer(capsys, monkeypatch, tmp_path):
+    """End-to-end guard on on_file: main -> get_download_size -> _total_size.
+
+    Only the size probes are faked, so the real registry and dispatch run.
+    """
+    monkeypatch.setattr(_fetch, "_size_from_s3", lambda bucket, key: 2048)
+    monkeypatch.setattr(_fetch, "_size_from_url", lambda url: None)
+
+    name = lambdaquery.list_datasets("WMAP")[0]  # don't hardcode a manifest name
+    assert _cli.main(["size", "WMAP", name, "-o", str(tmp_path)]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == "2.00 KB\n"
+    assert "1 file(s): 1 to download" in captured.err

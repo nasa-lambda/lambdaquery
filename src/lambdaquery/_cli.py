@@ -5,7 +5,7 @@ from pathlib import Path
 from botocore.exceptions import ClientError
 from requests import HTTPError
 
-from . import fetch_data, list_datasets, list_experiments
+from . import fetch_data, get_download_size, list_datasets, list_experiments
 from ._cache import ChecksumError
 
 
@@ -25,6 +25,28 @@ class _Progress:
         elif event == "done":
             self.downloaded += 1
             print(_format_size(path.stat().st_size), file=sys.stderr)
+
+
+class _SizeProgress:
+    """Tallies what a size query skipped, for a one-line stderr summary."""
+
+    def __init__(self) -> None:
+        self.counted = 0
+        self.cached = 0
+        self.unknown = 0
+
+    def __call__(self, event: str, path: Path) -> None:
+        if event == "counted":
+            self.counted += 1
+        elif event == "cached":
+            self.cached += 1
+        elif event == "unknown":
+            self.unknown += 1
+            print(f"unknown size {path}", file=sys.stderr)
+
+    @property
+    def total_files(self) -> int:
+        return self.counted + self.cached + self.unknown
 
 
 def _format_size(n: int) -> str:
@@ -77,6 +99,26 @@ def fetch(args: argparse.Namespace) -> None:
         )
 
 
+def size(args: argparse.Namespace) -> None:
+    progress = None if args.quiet else _SizeProgress()
+
+    total = get_download_size(
+        args.experiment,
+        args.dataset,
+        args.output,
+        on_file=progress,
+    )
+
+    print(_format_size(total))
+
+    if progress is not None:
+        print(
+            f"{progress.total_files} file(s): {progress.counted} to download, "
+            f"{progress.cached} cached, {progress.unknown} of unknown size",
+            file=sys.stderr,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="lambdaquery", description="Tool to download data from LAMBDA"
@@ -115,6 +157,29 @@ def main(argv: list[str] | None = None) -> int:
         help="Suppress output",
     )
     fetch_parser.set_defaults(func=fetch)
+
+    # lambdaquery size EXPERIMENT DATASET [-o DIR] [-q]
+    size_parser = subparsers.add_parser(
+        "size",
+        help="Report how much data fetching a dataset would download",
+    )
+    size_parser.add_argument("experiment", help="Experiment name")
+    size_parser.add_argument("dataset", help="Dataset name")
+    size_parser.add_argument(
+        "-o",
+        "--output",
+        metavar="DIR",
+        type=Path,
+        default=Path("."),
+        help="Output directory (files already cached there are not counted)",
+    )
+    size_parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress output",
+    )
+    size_parser.set_defaults(func=size)
 
     args = parser.parse_args(argv)
 

@@ -15,7 +15,12 @@ def _write_manifest(tmp_path, body: str):
 
 
 def test_public_api_surface():
-    assert lambdaquery.__all__ == ["list_experiments", "list_datasets", "fetch_data"]
+    assert lambdaquery.__all__ == [
+        "list_experiments",
+        "list_datasets",
+        "fetch_data",
+        "get_download_size",
+    ]
 
 
 def test_list_experiments_and_datasets():
