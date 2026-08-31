@@ -5,7 +5,13 @@ from pathlib import Path
 from botocore.exceptions import ClientError
 from requests import HTTPError
 
-from . import fetch_data, get_download_size, list_datasets, list_experiments
+from . import (
+    fetch_data,
+    get_download_size,
+    list_datasets,
+    list_experiments,
+    list_files,
+)
 from ._cache import ChecksumError
 
 
@@ -66,10 +72,28 @@ def experiments(args: argparse.Namespace) -> None:
 
 
 def datasets(args: argparse.Namespace) -> None:
-    all_datasets = list_datasets(args.experiment)
-    if not all_datasets:
+    names = list_datasets(args.experiment)
+    if not names:
         return
-    print(*all_datasets, sep="\n")
+
+    if args.plain:
+        print(*names, sep="\n")
+        return
+
+    counts = {name: len(list_files(args.experiment, name)) for name in names}
+    # Align to the widest *group* name only. Padding to the widest name overall
+    # would push the annotations far right past WMAP's long leaf names.
+    width = max((len(n) for n, c in counts.items() if c > 1), default=0)
+    for name in names:
+        count = counts[name]
+        print(f"{name.ljust(width)}  ({count} files)" if count > 1 else name)
+
+
+def files(args: argparse.Namespace) -> None:
+    names = list_files(args.experiment, args.dataset)
+    if not names:
+        return
+    print(*names, sep="\n")
 
 
 def fetch(args: argparse.Namespace) -> None:
@@ -136,7 +160,21 @@ def main(argv: list[str] | None = None) -> int:
         help="List datasets for an experiment",
     )
     datasets_parser.add_argument("experiment", help="Experiment name")
+    datasets_parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Print bare names, one per line, with no multi-file annotations",
+    )
     datasets_parser.set_defaults(func=datasets)
+
+    # lambdaquery files EXPERIMENT DATASET
+    files_parser = subparsers.add_parser(
+        "files",
+        help="List the files a dataset would download, without downloading them",
+    )
+    files_parser.add_argument("experiment", help="Experiment name")
+    files_parser.add_argument("dataset", help="Dataset name")
+    files_parser.set_defaults(func=files)
 
     # lambdaquery fetch EXPERIMENT DATASET [-o DIR] [-q]
     fetch_parser = subparsers.add_parser("fetch", help="Fetch a dataset")

@@ -78,17 +78,76 @@ def test_experiments_prints_one_per_line(capsys, monkeypatch):
     assert capsys.readouterr().out == "A\nB\n"
 
 
-def test_datasets_prints_one_per_line(capsys, monkeypatch):
+def _stub_listing(monkeypatch, members):
+    """Stub the pair ``datasets`` uses: names come from ``members``' keys."""
     seen = []
 
-    def fake(experiment):
+    def fake_datasets(experiment):
         seen.append(experiment)
-        return ["x.fits", "y.fits"]
+        return list(members)
 
-    monkeypatch.setattr(_cli, "list_datasets", fake)
-    assert _cli.main(["datasets", "WMAP"]) == 0
+    monkeypatch.setattr(_cli, "list_datasets", fake_datasets)
+    monkeypatch.setattr(_cli, "list_files", lambda experiment, name: members[name])
+    return seen
+
+
+def test_datasets_plain_prints_one_per_line(capsys, monkeypatch):
+    seen = _stub_listing(monkeypatch, {"x.fits": ["x.fits"], "y.fits": ["y.fits"]})
+    assert _cli.main(["datasets", "WMAP", "--plain"]) == 0
     assert capsys.readouterr().out == "x.fits\ny.fits\n"
     assert seen == ["WMAP"]
+
+
+def test_datasets_plain_skips_resolving_entries(capsys, monkeypatch):
+    # --plain is the scripting path: it must not resolve every entry to count
+    # files, which for WMAP means 6,860 lookups the caller did not ask for.
+    monkeypatch.setattr(_cli, "list_datasets", lambda experiment: ["x.fits"])
+
+    def boom(experiment, name):
+        raise AssertionError("list_files must not be called for --plain")
+
+    monkeypatch.setattr(_cli, "list_files", boom)
+    assert _cli.main(["datasets", "WMAP", "--plain"]) == 0
+    assert capsys.readouterr().out == "x.fits\n"
+
+
+def test_datasets_annotates_multi_file_entries(capsys, monkeypatch):
+    _stub_listing(
+        monkeypatch,
+        {
+            "BK14": ["a.txt", "b.txt", "c.txt"],
+            "z.fits": ["z.fits"],
+        },
+    )
+    assert _cli.main(["datasets", "BICEP2"]) == 0
+    out = capsys.readouterr().out
+    assert out == "BK14  (3 files)\nz.fits\n"
+    # Leaf rows stay bare -- no padding, so no trailing whitespace.
+    assert not any(line.endswith(" ") for line in out.splitlines())
+
+
+def test_datasets_aligns_on_widest_group_name(capsys, monkeypatch):
+    # The long name here is a leaf: padding to it would strand the annotations
+    # far to the right for no gain.
+    _stub_listing(
+        monkeypatch,
+        {
+            "B2": ["a.txt", "b.txt"],
+            "BKJan2015": ["c.txt", "d.txt"],
+            "a_very_long_leaf_file_name.fits": ["a_very_long_leaf_file_name.fits"],
+        },
+    )
+    assert _cli.main(["datasets", "BICEP2"]) == 0
+    assert capsys.readouterr().out == (
+        "B2         (2 files)\nBKJan2015  (2 files)\na_very_long_leaf_file_name.fits\n"
+    )
+
+
+def test_datasets_single_child_group_reads_as_a_leaf(capsys, monkeypatch):
+    # "Multi-file" is the question being asked; "(1 files)" would be noise.
+    _stub_listing(monkeypatch, {"solo": ["only.txt"]})
+    assert _cli.main(["datasets", "BICEP2"]) == 0
+    assert capsys.readouterr().out == "solo\n"
 
 
 def test_empty_listing_prints_nothing(capsys, monkeypatch):
@@ -96,6 +155,36 @@ def test_empty_listing_prints_nothing(capsys, monkeypatch):
     monkeypatch.setattr(_cli, "list_experiments", lambda: [])
     assert _cli.main(["experiments"]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_files_prints_one_member_per_line(capsys, monkeypatch):
+    seen = []
+
+    def fake(experiment, dataset):
+        seen.append((experiment, dataset))
+        return ["a.txt", "b.txt", "c.txt"]
+
+    monkeypatch.setattr(_cli, "list_files", fake)
+    assert _cli.main(["files", "BICEP2", "BK14"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "a.txt\nb.txt\nc.txt\n"
+    assert captured.err == ""  # a listing command: the answer, nothing else
+    assert seen == [("BICEP2", "BK14")]
+
+
+def test_files_on_a_leaf_prints_the_single_name(capsys, monkeypatch):
+    monkeypatch.setattr(_cli, "list_files", lambda experiment, dataset: [dataset])
+    assert _cli.main(["files", "WMAP", "x.fits"]) == 0
+    assert capsys.readouterr().out == "x.fits\n"
+
+
+def test_files_unknown_dataset_exits_1(capsys):
+    # No stub: the real registry raises KeyError with the available entries.
+    assert _cli.main(["files", "BICEP2", "NOPE"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("error: ")
+    assert "not found" in captured.err
 
 
 def test_unknown_experiment_exits_1(capsys):

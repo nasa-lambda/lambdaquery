@@ -293,6 +293,32 @@ def test_total_size_reports_each_leaf_once(tmp_path, monkeypatch):
     ]
 
 
+# --- leaf names ----------------------------------------------------------
+
+
+def test_leaf_names_walks_a_group():
+    assert _fetch._leaf_names(_group("a.fits", "b.fits")) == ["a.fits", "b.fits"]
+
+
+def test_leaf_names_of_a_leaf_is_its_own_name():
+    entry = DatasetEntry(experiment="WMAP", name="a", path="/data/map/dr5/a.fits")
+    assert _fetch._leaf_names(entry) == ["a"]
+
+
+def test_leaf_names_dedups_shared_leaf():
+    # Same dedup key as _total_size, so `files` and `size` agree on the count.
+    leaf = DatasetEntry(experiment="WMAP", name="a", path="/data/map/dr5/a.fits")
+    group = DatasetEntry(experiment="WMAP", name="grp", children=(leaf, leaf))
+    assert _fetch._leaf_names(group) == ["a"]
+
+
+def test_leaf_names_dedups_across_doubled_slashes():
+    plain = DatasetEntry(experiment="WMAP", name="p", path="/data/map/powspec/x.txt")
+    doubled = DatasetEntry(experiment="WMAP", name="d", path="/data/map/powspec//x.txt")
+    group = DatasetEntry(experiment="WMAP", name="grp", children=(plain, doubled))
+    assert _fetch._leaf_names(group) == ["p"]
+
+
 def test_remote_size_falls_back_to_https_on_s3_miss(monkeypatch):
     calls = _record_sizes(
         monkeypatch,

@@ -80,6 +80,24 @@ def _iter_leaves(entry: DatasetEntry) -> Iterator[DatasetEntry]:
         yield from _iter_leaves(child)
 
 
+def _leaf_names(entry: DatasetEntry) -> list[str]:
+    """Names of every distinct file leaf under ``entry``, in tree order.
+
+    Deduped on the same key ``_total_size`` uses, so a listing and a size query
+    agree on the file count and the manifest's doubled slashes normalize away.
+    """
+    seen: set[Path] = set()
+    names: list[str] = []
+    for leaf in _iter_leaves(entry):
+        assert leaf.path is not None  # _iter_leaves only yields file leaves
+        key = _local_path(leaf.path, Path("."))
+        if key in seen:
+            continue
+        seen.add(key)
+        names.append(leaf.name)
+    return names
+
+
 def _notify(on_file: ProgressCallback | None, event: str, path: Path) -> None:
     if on_file is not None:
         on_file(event, path)

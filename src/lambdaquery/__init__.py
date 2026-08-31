@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ._fetch import ProgressCallback, _download, _total_size
+from ._fetch import ProgressCallback, _download, _leaf_names, _total_size
 from ._registry import _registry
 
 
@@ -10,6 +10,16 @@ def list_experiments() -> list[str]:
 
 def list_datasets(experiment: str) -> list[str]:
     return _registry.list_datasets(experiment)
+
+
+def list_files(experiment: str, dataset: str) -> list[str]:
+    """Entry names of every file ``fetch_data(experiment, dataset, ...)`` downloads.
+
+    A single-file dataset returns ``[dataset]``. Group members come back in tree
+    order with duplicates removed. Reads the manifest only -- no network access.
+    """
+    entry = _registry.get(experiment, dataset)
+    return _leaf_names(entry)
 
 
 def fetch_data(
@@ -41,4 +51,10 @@ def get_download_size(
     return _total_size(entry, Path(location), on_file=on_file)
 
 
-__all__ = ["list_experiments", "list_datasets", "fetch_data", "get_download_size"]
+__all__ = [
+    "list_experiments",
+    "list_datasets",
+    "list_files",
+    "fetch_data",
+    "get_download_size",
+]

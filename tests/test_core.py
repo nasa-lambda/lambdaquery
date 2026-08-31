@@ -5,6 +5,7 @@ import textwrap
 import pytest
 
 import lambdaquery
+from lambdaquery._fetch import _leaf_names
 from lambdaquery._registry import Registry
 
 
@@ -18,6 +19,7 @@ def test_public_api_surface():
     assert lambdaquery.__all__ == [
         "list_experiments",
         "list_datasets",
+        "list_files",
         "fetch_data",
         "get_download_size",
     ]
@@ -93,3 +95,104 @@ def test_get_reference_cycle_raises(tmp_path):
 def test_unknown_experiment_raises():
     with pytest.raises(KeyError):
         lambdaquery.list_datasets("NOPE")
+
+
+# --- list_files ----------------------------------------------------------
+#
+# lambdaquery.list_files reads the module-level registry singleton, so these
+# drive _leaf_names off a synthetic Registry directly rather than monkeypatching
+# it. The public wrapper is one line over the same call.
+
+
+def _files(reg, experiment, dataset):
+    return _leaf_names(reg.get(experiment, dataset))
+
+
+def test_list_files_leaf_returns_itself(tmp_path):
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          a: /data/map/a.fits
+        """,
+    )
+    assert _files(reg, "WMAP", "a") == ["a"]
+
+
+def test_list_files_group_returns_members_in_order(tmp_path):
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          b: /data/map/b.fits
+          a: /data/map/a.fits
+          grp:
+            - b
+            - a
+        """,
+    )
+    # Manifest order, not sorted -- these mirror what fetch_data downloads.
+    assert _files(reg, "WMAP", "grp") == ["b", "a"]
+
+
+def test_list_files_flattens_nested_groups(tmp_path):
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          a: /data/map/a.fits
+          b: /data/map/b.fits
+          c: /data/map/c.fits
+          inner:
+            - a
+            - b
+          outer:
+            - inner
+            - c
+        """,
+    )
+    assert _files(reg, "WMAP", "outer") == ["a", "b", "c"]
+
+
+def test_list_files_dedups_leaf_shared_by_two_groups(tmp_path):
+    # BICEP2's BKP and BKJan2015 share a bandpowers file; a listing must not
+    # double-count what fetch_data downloads once.
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          shared: /data/map/shared.fits
+          a: /data/map/a.fits
+          one:
+            - a
+            - shared
+          two:
+            - shared
+          both:
+            - one
+            - two
+        """,
+    )
+    assert _files(reg, "WMAP", "both") == ["a", "shared"]
+
+
+def test_list_files_dedups_across_doubled_slashes(tmp_path):
+    # The manifest has 1,265 doubled-slash paths; both spellings are one file.
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          plain: /data/map/x.fits
+          doubled: /data/map//x.fits
+          grp:
+            - plain
+            - doubled
+        """,
+    )
+    assert _files(reg, "WMAP", "grp") == ["plain"]
+
+
+def test_list_files_public_wrapper_hits_real_manifest():
+    names = lambdaquery.list_files("BICEP2", "BK14")
+    assert len(names) == 4
+    assert "BK14_cosmomc.tgz" in names
