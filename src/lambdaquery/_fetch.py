@@ -188,8 +188,15 @@ def _total_size(
 
 
 def _remote_size(entry: DatasetEntry) -> int | None:
-    """Remote byte size for a file leaf, or None if it cannot be determined."""
+    """Byte size for a file leaf, or None if it cannot be determined.
+
+    Prefers the manifest's own ``size:`` when present, so a fully-populated
+    dataset answers offline with no requests at all; entries without one still
+    fall back to asking S3 and then HTTPS.
+    """
     assert entry.path is not None
+    if entry.size is not None:
+        return entry.size
     if entry.experiment in s3_exps:
         bucket, key = _lambda_path_to_s3(entry.experiment, entry.path)
         size = _size_from_s3(bucket, key)

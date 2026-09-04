@@ -268,6 +268,32 @@ def test_total_size_dedups_shared_leaf(tmp_path, monkeypatch):
     assert calls["s3"] == ["wmap/dr5/a.fits"]
 
 
+def test_total_size_prefers_manifest_size(tmp_path, monkeypatch):
+    # A leaf carrying size: is answered offline -- neither probe is called.
+    calls = _record_sizes(monkeypatch, {"wmap/dr5/a.fits": 999})
+    entry = DatasetEntry(
+        experiment="WMAP", name="a", path="/data/map/dr5/a.fits", size=100
+    )
+    assert _fetch._total_size(entry, tmp_path) == 100
+    assert calls == {"s3": [], "url": []}
+
+
+def test_total_size_mixes_manifest_and_probed_sizes(tmp_path, monkeypatch):
+    calls = _record_sizes(monkeypatch, {"wmap/dr5/b.fits": 23})
+    group = DatasetEntry(
+        experiment="WMAP",
+        name="grp",
+        children=(
+            DatasetEntry(
+                experiment="WMAP", name="a", path="/data/map/dr5/a.fits", size=100
+            ),
+            DatasetEntry(experiment="WMAP", name="b", path="/data/map/dr5/b.fits"),
+        ),
+    )
+    assert _fetch._total_size(group, tmp_path) == 123
+    assert calls["s3"] == ["wmap/dr5/b.fits"]  # only the unpopulated leaf
+
+
 def test_total_size_unknown_leaf_is_skipped(tmp_path, monkeypatch):
     # b.fits is on neither source; a dead link must not fail the whole query.
     _record_sizes(monkeypatch, {"wmap/dr5/a.fits": 100})

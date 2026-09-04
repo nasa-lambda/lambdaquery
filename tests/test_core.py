@@ -97,6 +97,156 @@ def test_unknown_experiment_raises():
         lambdaquery.list_datasets("NOPE")
 
 
+# --- mapping-form entries ------------------------------------------------
+#
+# A leaf may be written "name: /path" or "name: {path: ..., size: ..., ...}";
+# a group "name: [child, ...]" or "name: {children: [...], ...}". Which key is
+# present -- path or children -- decides which kind of entry it is.
+
+
+def test_mapping_leaf_carries_metadata(tmp_path):
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          a:
+            path: /data/map/a.fits
+            size: 50342400
+            checksum: md5:9f2c1b8e04a7d3f61c8b0e2a5d7f4361
+            description: A map
+        """,
+    )
+    entry = reg.get("WMAP", "a")
+    assert entry.is_file
+    assert entry.path == "/data/map/a.fits"
+    assert entry.size == 50342400
+    assert entry.checksum == "md5:9f2c1b8e04a7d3f61c8b0e2a5d7f4361"
+    assert entry.description == "A map"
+
+
+def test_mapping_leaf_metadata_is_optional(tmp_path):
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          a:
+            path: /data/map/a.fits
+        """,
+    )
+    entry = reg.get("WMAP", "a")
+    assert entry.size is None
+    assert entry.checksum is None
+    assert entry.description == ""
+
+
+def test_shorthand_and_mapping_leaves_resolve_alike(tmp_path):
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          a: /data/map/a.fits
+          b:
+            path: /data/map/b.fits
+          grp:
+            - a
+            - b
+        """,
+    )
+    grp = reg.get("WMAP", "grp")
+    assert [c.path for c in grp.children] == ["/data/map/a.fits", "/data/map/b.fits"]
+    assert all(c.is_file for c in grp.children)
+
+
+def test_mapping_group_carries_description(tmp_path):
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          a: /data/map/a.fits
+          b: /data/map/b.fits
+          grp:
+            description: Two maps
+            children:
+              - a
+              - b
+        """,
+    )
+    grp = reg.get("WMAP", "grp")
+    assert not grp.is_file
+    assert grp.description == "Two maps"
+    assert [c.name for c in grp.children] == ["a", "b"]
+
+
+def test_mapping_group_nests(tmp_path):
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          a: /data/map/a.fits
+          inner:
+            children:
+              - a
+          outer:
+            children:
+              - inner
+        """,
+    )
+    outer = reg.get("WMAP", "outer")
+    assert [c.name for c in outer.children] == ["inner"]
+    assert [c.name for c in outer.children[0].children] == ["a"]
+
+
+def test_mapping_group_cycle_raises(tmp_path):
+    # The cycle check must still be threaded through the mapping form.
+    reg = _write_manifest(
+        tmp_path,
+        """
+        WMAP:
+          a:
+            children:
+              - b
+          b:
+            children:
+              - a
+        """,
+    )
+    with pytest.raises(ValueError, match="cycle"):
+        reg.get("WMAP", "a")
+
+
+@pytest.mark.parametrize(
+    "body, match",
+    [
+        ("a:\n    path: /data/x.fits\n    children:\n      - b\n", "both"),
+        ("a:\n    description: neither\n", "either"),
+        ("a:\n    path: /data/x.fits\n    checkum: deadbeef\n", "unknown key"),
+        ("a:\n    children: []\n    size: 5\n", "unknown key"),
+        ("a:\n    path: /data/x.fits\n    size: -1\n", "negative"),
+    ],
+)
+def test_mapping_entry_validation_errors(tmp_path, body, match):
+    reg = _write_manifest(tmp_path, f"WMAP:\n  {body}")
+    with pytest.raises(ValueError, match=match):
+        reg.get("WMAP", "a")
+
+
+@pytest.mark.parametrize(
+    "body, match",
+    [
+        ("a:\n    path: /data/x.fits\n    size: big\n", "size"),
+        ("a:\n    path: /data/x.fits\n    size: true\n", "size"),
+        ("a:\n    path: 42\n", "path"),
+        ("a:\n    path: /data/x.fits\n    checksum: 42\n", "checksum"),
+        ("a:\n    children: not-a-list\n", "children"),
+        ("a: 42\n", "must be a path string"),
+    ],
+)
+def test_mapping_entry_type_errors(tmp_path, body, match):
+    reg = _write_manifest(tmp_path, f"WMAP:\n  {body}")
+    with pytest.raises(TypeError, match=match):
+        reg.get("WMAP", "a")
+
+
 # --- list_files ----------------------------------------------------------
 #
 # lambdaquery.list_files reads the module-level registry singleton, so these

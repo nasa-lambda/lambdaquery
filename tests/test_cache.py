@@ -45,13 +45,34 @@ def test_is_cached_checks_size(tmp_path):
     assert not _cache.is_cached(f, _leaf(size=99))
 
 
-def test_is_cached_checks_checksum(tmp_path):
+def test_is_cached_ignores_checksum(tmp_path):
+    # is_cached runs on every fetch and once per leaf in a size walk, so it
+    # checks size only -- hashing here would re-read every cached byte just to
+    # answer "is it already there?". verify still catches a bad digest.
+    f = tmp_path / "x.fits"
+    f.write_bytes(b"data")
+    assert _cache.is_cached(f, _leaf(checksum="deadbeef"))
+
+
+def test_is_cached_does_not_read_the_file(tmp_path, monkeypatch):
+    f = tmp_path / "x.fits"
+    f.write_bytes(b"data")
+
+    def boom(*args, **kwargs):
+        raise AssertionError("is_cached must not hash the file")
+
+    monkeypatch.setattr(_cache, "compute_checksum", boom)
+    good = hashlib.md5(b"data").hexdigest()
+    assert _cache.is_cached(f, _leaf(size=4, checksum=good))
+
+
+def test_verify_checks_checksum(tmp_path):
     f = tmp_path / "x.fits"
     f.write_bytes(b"data")
     good = hashlib.md5(b"data").hexdigest()
-    assert _cache.is_cached(f, _leaf(checksum=good))
-    assert _cache.is_cached(f, _leaf(checksum=f"md5:{good}"))
-    assert not _cache.is_cached(f, _leaf(checksum="deadbeef"))
+    _cache.verify(f, _leaf(checksum=good))  # bare hex means md5
+    _cache.verify(f, _leaf(checksum=f"md5:{good}"))
+    assert f.exists()
 
 
 def test_verify_noop_without_metadata(tmp_path):
