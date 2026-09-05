@@ -1,9 +1,13 @@
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import yaml
-
-_MANIFEST_PATH = Path(__file__).parent / "data" / "manifest.yaml"
+# JSON rather than YAML: the manifest is generated, never hand-edited, so YAML's
+# readability buys nothing while costing ~70x the parse (295 ms vs 4 ms for the
+# packaged catalog) -- and this runs at import time, via the module-level
+# _registry singleton below, on every CLI invocation. Written with indent=1 so
+# it stays one entry per line, greppable and diffable.
+_MANIFEST_PATH = Path(__file__).parent / "data" / "manifest.json"
 
 
 @dataclass(frozen=True)
@@ -31,7 +35,7 @@ class DatasetEntry:
 class Registry:
     def __init__(self, manifest_path: Path = _MANIFEST_PATH):
         with open(manifest_path, "r") as f:
-            self._data = yaml.safe_load(f)
+            self._data = json.load(f)
 
     def list_experiments(self) -> list[str]:
         return sorted(self._data.keys())
@@ -49,10 +53,10 @@ class Registry:
     # part that changes when the manifest changes. Under each experiment an
     # entry value takes one of four forms:
     #
-    #   name: /data/.../file.fits          a file leaf (shorthand)
-    #   name: [other_entry_name, ...]      a group of siblings (shorthand)
-    #   name: {path: ..., size: ...}       a file leaf carrying metadata
-    #   name: {children: [...], ...}       a group carrying metadata
+    #   "name": "/data/.../file.fits"        a file leaf (shorthand)
+    #   "name": ["other_entry_name", ...]    a group of siblings (shorthand)
+    #   "name": {"path": ..., "size": ...}   a file leaf carrying metadata
+    #   "name": {"children": [...], ...}     a group carrying metadata
     #
     # The mapping forms are distinguished by which key is present: 'path' means
     # a leaf, 'children' means a group. References are resolved recursively.

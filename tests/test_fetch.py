@@ -1,5 +1,6 @@
 """Tests for the download/dispatch layer (offline; network is mocked)."""
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -88,20 +89,54 @@ def test_planck_routes_to_url(tmp_path, monkeypatch):
     assert calls["s3"] == []
 
 
+def _without_metadata(entry: DatasetEntry) -> DatasetEntry:
+    """Copy an entry tree with size/checksum cleared.
+
+    Tests that fake the transport cannot satisfy a real leaf's metadata -- the
+    bytes they invent match neither the declared size nor the md5 -- so `verify`
+    would reject the download and `is_cached` would miss on the second visit,
+    defeating the very dedup under test. Dropping the metadata leaves the real
+    paths, experiment and tree shape, which is what routing and dedup key off.
+    """
+    return replace(
+        entry,
+        size=None,
+        checksum=None,
+        children=tuple(_without_metadata(c) for c in entry.children),
+    )
+
+
 def test_group_download_dedups_shared_leaf(tmp_path, monkeypatch):
+    """A leaf reachable by two paths through the tree is downloaded once.
+
+    Driven by the packaged manifest's only real shared-leaf pair: BICEP2's BKP
+    and BKJan2015 both contain BK_bandpowers_20150130.txt. They are siblings
+    with no common parent, so the enclosing group is composed here; everything
+    below it -- paths, experiment, the sharing itself -- is real manifest data.
+    BICEP2 is not in `s3_exps`, so every leaf routes over HTTPS.
+    """
     calls = _record_downloaders(monkeypatch)
-    reg = Registry()  # packaged sample manifest
-    entry = reg.get("WMAP", "all9yr")  # references iqumapKa9yr twice
+    reg = Registry()  # packaged manifest
+    entry = _without_metadata(
+        DatasetEntry(
+            experiment="BICEP2",
+            name="both",
+            children=(reg.get("BICEP2", "BKP"), reg.get("BICEP2", "BKJan2015")),
+        )
+    )
 
     result = _fetch._download(entry, tmp_path)
 
     assert isinstance(result, list)
-    # The shared leaf's S3 key appears once despite being referenced twice.
-    shared_key = (
-        "wmap/dr5/skymaps/9yr/forered/wmap_band_forered_iqumap_r9_9yr_Ka_v5.fits"
+    shared = (
+        "https://lambda.gsfc.nasa.gov/data/suborbital/BICEP2KP/"
+        "BK_bandpowers_20150130.txt"
     )
-    assert calls["s3"].count(shared_key) == 1
-    assert len(set(calls["s3"])) == 2  # two distinct leaves, each downloaded once
+    # Referenced by both groups (6 + 17 leaves), fetched once.
+    assert calls["s3"] == []
+    assert calls["url"].count(shared) == 1
+    assert len(set(calls["url"])) == 22  # distinct union of the two groups
+    assert len(calls["url"]) == 22  # nothing fetched twice
     assert all(p.exists() for p in result)
 
 

@@ -9,7 +9,6 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "boto3>=1.43.41",
-    "pyyaml>=6.0.3",
     "requests>=2.34.2",
 ]
 

@@ -6,6 +6,7 @@ no ``subprocess``. ``_cli`` binds the public functions into its own namespace vi
 seam for stubbing them.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,40 @@ from botocore.exceptions import ClientError
 import lambdaquery
 from lambdaquery import _cli, _fetch
 from lambdaquery._cache import ChecksumError
-from lambdaquery._registry import DatasetEntry
+from lambdaquery._registry import DatasetEntry, Registry
+
+
+@pytest.fixture
+def synthetic_catalog(tmp_path, monkeypatch):
+    """Point the public API at a small manifest carrying no size/checksum.
+
+    The integration tests below fake only the transport, so they need a catalog
+    whose entries make no claims about the bytes that arrive -- against the real
+    manifest, `_cache.verify` rejects an 8-byte fake as a size mismatch and
+    `_remote_size` answers from `size:` before any stubbed probe runs. Both are
+    correct behavior, and neither is what those tests are checking.
+
+    `__init__.py` holds `_registry` as a module global that the public functions
+    resolve at call time, so rebinding it here reaches all five of them; `_cli`
+    calls through those, not the registry, so it needs no patching. Using a
+    synthetic catalog also decouples these from whichever entry happens to sort
+    first in the packaged manifest.
+    """
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "WMAP": {
+                    "a.fits": "/data/map/dr5/a.fits",
+                    "b.fits": "/data/map/dr5/b.fits",
+                    "grp": ["a.fits", "b.fits"],
+                },
+                "Planck": {"p.fits": "/data/planck/p.fits"},
+            }
+        )
+    )
+    monkeypatch.setattr(lambdaquery, "_registry", Registry(manifest_path=path))
+    return path
 
 
 def _stub_fetch(monkeypatch, result, *, on_file_events=()):
@@ -415,7 +449,9 @@ def test_error_exits_1(capsys, monkeypatch, tmp_path, exc):
 # --- integration: the callback reaches the download layer ----------------
 
 
-def test_progress_reaches_download_layer(capsys, monkeypatch, tmp_path):
+def test_progress_reaches_download_layer(
+    capsys, monkeypatch, tmp_path, synthetic_catalog
+):
     """End-to-end guard on on_file: main -> fetch_data -> _download -> _download_file.
 
     A dropped keyword anywhere in that chain turns this red. Only the two
@@ -433,8 +469,7 @@ def test_progress_reaches_download_layer(capsys, monkeypatch, tmp_path):
     monkeypatch.setattr(_fetch, "_download_from_s3", fake_s3)
     monkeypatch.setattr(_fetch, "_download_from_url", fake_url)
 
-    name = lambdaquery.list_datasets("WMAP")[0]  # don't hardcode a manifest name
-    assert _cli.main(["fetch", "WMAP", name, "-o", str(tmp_path)]) == 0
+    assert _cli.main(["fetch", "WMAP", "a.fits", "-o", str(tmp_path)]) == 0
 
     captured = capsys.readouterr()
     assert "downloading" in captured.err
@@ -442,7 +477,9 @@ def test_progress_reaches_download_layer(capsys, monkeypatch, tmp_path):
     assert captured.out.strip().startswith(str(tmp_path))
 
 
-def test_progress_reports_cached_on_second_run(capsys, monkeypatch, tmp_path):
+def test_progress_reports_cached_on_second_run(
+    capsys, monkeypatch, tmp_path, synthetic_catalog
+):
     monkeypatch.setattr(
         _fetch,
         "_download_from_s3",
@@ -454,8 +491,7 @@ def test_progress_reports_cached_on_second_run(capsys, monkeypatch, tmp_path):
         lambda url, location: location.write_bytes(b"url-bytes"),
     )
 
-    name = lambdaquery.list_datasets("WMAP")[0]
-    argv = ["fetch", "WMAP", name, "-o", str(tmp_path)]
+    argv = ["fetch", "WMAP", "a.fits", "-o", str(tmp_path)]
     assert _cli.main(argv) == 0
     capsys.readouterr()  # discard the first run's output
 
@@ -497,17 +533,43 @@ def test_group_progress_reports_every_child(tmp_path, monkeypatch):
     ]
 
 
-def test_size_callback_reaches_fetch_layer(capsys, monkeypatch, tmp_path):
+def test_size_callback_reaches_fetch_layer(
+    capsys, monkeypatch, tmp_path, synthetic_catalog
+):
     """End-to-end guard on on_file: main -> get_download_size -> _total_size.
 
-    Only the size probes are faked, so the real registry and dispatch run.
+    Only the size probes are faked, so the real registry and dispatch run. The
+    synthetic catalog carries no `size:`, which is what leaves the probes
+    reachable -- `_remote_size` prefers a manifest size over any network call.
     """
     monkeypatch.setattr(_fetch, "_size_from_s3", lambda bucket, key: 2048)
     monkeypatch.setattr(_fetch, "_size_from_url", lambda url: None)
 
-    name = lambdaquery.list_datasets("WMAP")[0]  # don't hardcode a manifest name
-    assert _cli.main(["size", "WMAP", name, "-o", str(tmp_path)]) == 0
+    assert _cli.main(["size", "WMAP", "a.fits", "-o", str(tmp_path)]) == 0
 
     captured = capsys.readouterr()
     assert captured.out == "2.00 KB\n"
     assert "1 file(s): 1 to download" in captured.err
+
+
+def test_size_prefers_manifest_over_probe(capsys, monkeypatch, tmp_path):
+    """A populated `size:` short-circuits the network probes entirely.
+
+    The mirror image of the test above, and the reason it needed a synthetic
+    catalog: with metadata present the stubs must never be reached.
+    """
+
+    def boom(*args, **kwargs):
+        raise AssertionError("a size probe was called despite a manifest size")
+
+    monkeypatch.setattr(_fetch, "_size_from_s3", boom)
+    monkeypatch.setattr(_fetch, "_size_from_url", boom)
+
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps({"WMAP": {"a.fits": {"path": "/data/map/a.fits", "size": 2048}}})
+    )
+    monkeypatch.setattr(lambdaquery, "_registry", Registry(manifest_path=path))
+
+    assert _cli.main(["size", "WMAP", "a.fits", "-o", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "2.00 KB\n"
