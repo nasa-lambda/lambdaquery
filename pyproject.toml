@@ -1,15 +1,30 @@
 [project]
 name = "lambdaquery"
 version = "0.1.0"
-description = "Access LAMBDA data."
+description = "Programmatic access to NASA LAMBDA archive data."
 readme = "README.md"
 authors = [
     { name = "Nathan Miller", email = "Nathan.J.Miller@nasa.gov" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.10"
 dependencies = [
-    "boto3>=1.43.41",
-    "requests>=2.34.2",
+    "boto3>=1.20",
+    "requests>=2.25",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Typing :: Typed",
 ]
 
 [project.scripts]
@@ -21,10 +36,10 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ipykernel>=6.32",
-    "ipython>=9.16.1",
-    "jupyterlab>=4.5",
-    "pytest>=9.1.1",
+    "ipykernel>=6.29",
+    "ipython>=8.18",
+    "jupyterlab>=4.0",
+    "pytest>=8.0",
     "ruff>=0.15.20",
     "ty>=0.0.59",
 ]
@@ -34,6 +49,9 @@ testpaths = ["tests"]
 
 [tool.ruff]
 src = ["src"]
+# Pin to requires-python so syntax newer than the floor (match statements, PEP
+# 695 generics) is flagged here rather than in a 3.10 user's traceback.
+target-version = "py310"
 # The demo notebook bootstraps sys.path before importing, so its imports can't sit
 # at the top of the cell, and `console` isn't resolvable statically. Linting it
 # would only add noqa noise to a file meant to be read by newcomers.
@@ -46,7 +64,7 @@ select = ["E", "F", "I"] # pycodestyle, pyflakes, isort
 exclude = ["notebooks"] # see the ruff note above
 
 [tool.ty.environment]
-python-version = "3.14"
+python-version = "3.10" # keep in sync with requires-python
 
 [tool.ty.terminal]
 error-on-warning = true
